@@ -4,7 +4,9 @@ pub enum MemAddrError {
     AddressInvalid(String),
     AddressOutOfBounds(String),
     AddressNotReadable(String),
-    InvalidPid(String)
+    InvalidPid(String),
+    ParseError(String),
+    NoPermission(String)
 }
 
 pub enum RPMError {
@@ -51,6 +53,8 @@ impl InternalLimeError for MemAddrError {
             MemAddrError::AddressOutOfBounds(e) => format!("Address is out of bound of process memory: {}", e),
             MemAddrError::AddressNotReadable(e) => format!("Unreadable mem region: {}", e),
             MemAddrError::InvalidPid(e) => format!("Invalid pid supplied: {}", e),
+            MemAddrError::ParseError(e) => format!("Error while parsing /maps: {}", e),
+            MemAddrError::NoPermission(e) => format!("Wrong permissions for region: {}", e)
         }
     }
 }

@@ -1,5 +1,7 @@
-mod patterns {
-    mod offsets;
+mod internal {
+    mod patterns {
+        mod offsets;
+    }
 }
 
 mod devmem {
@@ -12,10 +14,10 @@ mod procvm {
     mod write;
 }
 
-mod procmem {
-    mod read;
-    mod write;
-    mod procmem;
+pub mod procmem {
+    pub mod read;
+    pub mod write;
+    pub mod procmem;
 }
 
 mod ptrace {

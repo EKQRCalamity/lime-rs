@@ -1,4 +1,4 @@
-use crate::errors::InvalidFormat;
+use crate::{errors::InvalidFormat, procmem::procmem::ProcMem};
 
 pub struct Pattern {
     bytes: Vec<u8>,
@@ -85,5 +85,9 @@ impl ProcMemOffsetScanner {
                 self.result_addr.push(i);
             }
         }
+    }
+
+    pub fn scan_proc_for_pattern(&mut self, procmem: ProcMem, pattern: Pattern) {
+
     }
 }
