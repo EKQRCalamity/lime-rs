@@ -26,6 +26,12 @@ pub enum InvalidFormat {
     IsNonValidPattern(String),
 }
 
+pub enum GeneralErrors {
+    PatternNotFound(String),
+    PatternIsEmpty(String),
+    PatternLargerThanBuffer(String),
+}
+
 impl InternalLimeError for WPMError {
     fn string(&self) -> String {
         match self {
@@ -59,4 +65,21 @@ impl InternalLimeError for MemAddrError {
     }
 }
 
+impl InternalLimeError for InvalidFormat {
+    fn string(&self) -> String {
+        match self {
+            InvalidFormat::IsNonValidPattern(e) => format!("Pattern was invalid: {}", e),
+            InvalidFormat::ContainsInvalidCharacters(e) => format!("Pattern contained invalid characters: {}", e),
+        }
+    }
+}
 
+impl InternalLimeError for GeneralErrors {
+    fn string(&self) -> String {
+        match self {
+            GeneralErrors::PatternIsEmpty(e) => format!("Pattern was empty: {}", e),
+            GeneralErrors::PatternNotFound(e) => format!("Pattern not found in buffer: {}", e),
+            GeneralErrors::PatternLargerThanBuffer(e) => format!("Pattern is larger than buffer: {}", e),
+        }
+    }
+}

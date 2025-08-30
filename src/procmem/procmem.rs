@@ -1,14 +1,16 @@
 use std::{fs::OpenOptions, path::PathBuf};
 
-use crate::{errors::MemAddrError, traits::{InternalLimeError}};
+use crate::{errors::MemAddrError, internal::patterns::offsets::{OffsetScanner, Pattern}, traits::InternalLimeError};
 
 pub struct ProcMem {
-    pub pid: i32,
+    pub pid: u32,
     pub mem_file: std::fs::File,
+    pub maps: ProcMemoryMaps
 }
 
 impl ProcMem {
-    pub fn new(pid: i32, write: bool) -> Result<Self, Box<dyn InternalLimeError>> {
+    pub fn new(pid: u32, write: bool) -> Result<Self, Box<dyn InternalLimeError>> {
+        let maps = ProcMemoryMaps::new(pid)?;
         let path = PathBuf::from(format!("/proc/{}/mem", pid));
 
         let file = OpenOptions::new()
@@ -18,10 +20,93 @@ impl ProcMem {
                 |e| MemAddrError::InvalidPid(format!("{} - io error: {}", pid, e))
             )?;
 
-        Ok(Self { pid, mem_file: file })
+        Ok(Self { pid, mem_file: file, maps })
+    }
+
+    pub fn get_maps(&self) -> &ProcMemoryMaps {
+        &self.maps
+    }
+
+    pub fn refresh_maps(&mut self) -> Result<(), Box<dyn InternalLimeError>> {
+        self.maps = ProcMemoryMaps::new(self.pid)?;
+        Ok(())
+    }
+
+    pub fn scan_region_for_pattern(
+        &mut self,
+        region: &ProcMemoryRegion,
+        pattern: &str
+    ) -> Result<Vec<u64>, Box<dyn InternalLimeError>> {
+        let pattern = Pattern::from_str(pattern)?;
+
+        let scanner = OffsetScanner::default();
+        scanner.scan_range_for_pattern(
+            self,
+            region.start,
+            region.end,
+            &pattern
+        )
+    }
+
+    pub fn scan_module_for_pattern(
+        &mut self,
+        module_name: &str,
+        pattern: &str
+    ) -> Result<Vec<u64>, Box<dyn InternalLimeError>> {
+        let pattern = Pattern::from_str(pattern)?;
+
+        let scanner = OffsetScanner::default();
+
+        let mut results = Vec::new();
+
+        let reg_bind = self.maps.clone();
+        let regions = reg_bind.find_regions_by_name(module_name);
+        for region in regions {
+            if region.is_readable() {
+                let mut region_results = scanner.scan_range_for_pattern(
+                    self,
+                    region.start,
+                    region.end,
+                    &pattern
+                )?;
+                results.append(&mut region_results);
+            }
+        }
+
+        results.sort_unstable();
+        Ok(results)
+    }
+
+    pub fn scan_heap_for_pattern(
+        &mut self,
+        pattern: &str
+    ) -> Result<Vec<u64>, Box<dyn InternalLimeError>> {
+        let pattern = Pattern::from_str(pattern)?;
+        
+        let scanner = OffsetScanner::default();
+
+        let mut results = Vec::new();
+
+        let bind = self.maps.clone();
+        let heap = bind.get_heap_regions();
+        for heap_region in heap {
+            let mut region_results = scanner.scan_range_for_pattern(
+                self,
+                heap_region.start,
+                heap_region.end,
+                &pattern
+            )?;
+
+            results.append(&mut region_results);
+        }
+
+        results.sort_unstable();
+
+        Ok(results)
     }
 }
 
+#[derive(Clone)]
 pub struct ProcMemoryRegion {
     pub start: u64,
     pub end: u64,
@@ -54,6 +139,8 @@ impl ProcMemoryRegion {
     }
 }
 
+
+#[derive(Clone)]
 pub struct ProcMemoryMaps {
     regions: Vec<ProcMemoryRegion>
 }
@@ -287,5 +374,18 @@ impl ProcMemoryMaps {
                 }
             ).map(|region| region.start)
             .min()
+    }
+
+    pub fn get_module_probable_load_base(&self, module_name: &str) -> Option<u64> {
+        self.find_regions_by_name(module_name)
+            .iter().filter(
+                |region| {
+                    region.is_executable()
+                }
+            ).map(
+                |region| {
+                    region.start - region.offset
+                }
+            ).min()
     }
 }

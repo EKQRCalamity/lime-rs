@@ -1,6 +1,6 @@
 mod internal {
-    mod patterns {
-        mod offsets;
+    pub mod patterns {
+        pub mod offsets;
     }
 }
 
@@ -17,6 +17,7 @@ mod procvm {
 pub mod procmem {
     pub mod read;
     pub mod write;
+    pub mod scan;
     pub mod procmem;
 }
 

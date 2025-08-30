@@ -6,6 +6,8 @@ use super::procmem::ProcMem;
 
 impl WriteProcessMemory for ProcMem {
     fn write_value<T: Copy>(&mut self, addr: u64, value: &T) -> Result<(), Box<dyn crate::traits::InternalLimeError>> {
+        self.maps.can_write(addr, std::mem::size_of::<T>())?;
+
         let bytes = unsafe {
             std::slice::from_raw_parts(
                 (value as *const T) as *const u8,

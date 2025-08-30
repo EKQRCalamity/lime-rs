@@ -6,6 +6,8 @@ use super::procmem::ProcMem;
 
 impl ReadProcessMemory for ProcMem {
     fn read_value<T: Copy>(&mut self, addr: u64) -> Result<T, Box<dyn crate::traits::InternalLimeError>> {
+        self.maps.can_read(addr, std::mem::size_of::<T>())?;
+
         let mut buffer = vec![0u8; size_of::<T>()];
         self.mem_file.seek(SeekFrom::Start(addr)).map_err(
             |_e| RPMError::ReadOutOfBounds(format!("Address {}", addr))

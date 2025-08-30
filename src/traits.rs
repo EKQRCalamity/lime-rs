@@ -10,6 +10,10 @@ pub trait WriteProcessMemory {
     fn write_value<T: Copy>(&mut self, addr: u64, value: &T) -> Result<(), Box<dyn InternalLimeError>>;
 }
 
+pub trait ProcessMemoryPatternScan {
+    fn scan_for_pattern(&mut self, pattern: &str) -> Option<Vec<u64>>;
+}
+
 pub trait InternalLimeError {
     fn string(&self) -> String;
 }
@@ -37,3 +41,5 @@ impl From<MemAddrError> for Box<dyn InternalLimeError> {
         Box::new(value)
     }
 }
+
+
