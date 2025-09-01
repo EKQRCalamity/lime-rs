@@ -1,5 +1,6 @@
 use crate::traits::InternalLimeError;
 
+#[derive(Debug)]
 pub enum MemAddrError {
     AddressInvalid(String),
     AddressOutOfBounds(String),
@@ -9,23 +10,27 @@ pub enum MemAddrError {
     NoPermission(String)
 }
 
+#[derive(Debug)]
 pub enum RPMError {
     FailedToRead(String),
     ReadOutOfBounds(String),
     BadDataType(String),
 }
 
+#[derive(Debug)]
 pub enum WPMError {
     FailedToWrite(String),
     WriteOutOfBounds(String),
     BadDataType(String),
 }
 
+#[derive(Debug)]
 pub enum InvalidFormat {
     ContainsInvalidCharacters(String),
     IsNonValidPattern(String),
 }
 
+#[derive(Debug)]
 pub enum GeneralErrors {
     PatternNotFound(String),
     PatternIsEmpty(String),

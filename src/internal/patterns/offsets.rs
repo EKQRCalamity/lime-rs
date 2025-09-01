@@ -152,17 +152,14 @@ impl OffsetScanner {
 
             let read_size = min(self.chunk_size, remaining);
 
-            // Pattern cant fit into remaining space of read
             if read_size < pattern.len() {
                 break;
             }
 
-            // In rust, for loops with a range (x..y) start at x and end at y-1
             let mut buffer = Vec::new();
             for offset in 0..read_size {
                 match reader.read_value::<u8>(current + offset as u64) {
                     Ok(b) => buffer.push(b),
-                    // We stop reading on read error
                     Err(_) => break,
                 }
             }
@@ -170,9 +167,8 @@ impl OffsetScanner {
             if buffer.len() >= pattern.len() {
                 let chunked_results = self.scan_buf_for_pattern(&buffer, pattern)?;
 
-                // relative addresses gotten by the scan
                 for relative in &chunked_results {
-                    let absolute = current - relative;
+                    let absolute = current + relative;
                     results.push(absolute);
                 }
             }

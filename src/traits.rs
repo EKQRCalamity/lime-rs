@@ -1,4 +1,4 @@
-use std::fmt::Display;
+use std::fmt::{Debug, Display};
 
 use crate::errors::{MemAddrError, RPMError, WPMError};
 
@@ -16,6 +16,12 @@ pub trait ProcessMemoryPatternScan {
 
 pub trait InternalLimeError {
     fn string(&self) -> String;
+}
+
+impl Debug for dyn InternalLimeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.string())
+    }
 }
 
 impl Display for dyn InternalLimeError {
