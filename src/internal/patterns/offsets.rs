@@ -1,83 +1,23 @@
+#![allow(dead_code)]
+
 use std::cmp::min;
+
+use basic_pattern_scanner::pattern::types::Pattern;
+use basic_pattern_scanner::scanner::scanner::scan_all;
 
 use crate::{errors::{GeneralErrors, InvalidFormat, MemAddrError}, traits::{InternalLimeError, ReadProcessMemory}};
 
-#[derive(Debug)]
-pub struct Pattern {
-    bytes: Vec<u8>,
-    mask: Vec<bool>,
-}
+/// Strips optional `0x`/`0X` prefixes from each token, then delegates to
+/// `Pattern::from_ida_str`. Accepts both `?` and `??` as wildcards.
+pub fn parse_pattern(pattern: &str) -> Result<Pattern, Box<dyn InternalLimeError>> {
+    let normalized: String = pattern
+        .split_whitespace()
+        .map(|t| if t.starts_with("0x") || t.starts_with("0X") { &t[2..] } else { t })
+        .collect::<Vec<_>>()
+        .join(" ");
 
-impl Pattern {
-    // Parse a pattern from a string
-    //
-    // Formats accepted: 
-    // DE AD ? DE 0A ?
-    // DE AD ?? DE 0A ??
-    // 0xDE 0xAD 0x? 0xDE 0x0A 0x?
-    // 0xDE 0xAD 0x?? 0xDE 0x0A 0x??
-    pub fn from_str(pattern: &str) -> Result<Self, Box<dyn InternalLimeError>> {
-        let mut bytes = Vec::new();
-        let mut mask = Vec::new();
-
-        for ol_token in pattern.split_whitespace() {
-            let token = ol_token.trim();
-
-            let token = if token.starts_with("0x") || token.starts_with("0X") {
-                &token[2..]
-            } else {
-                token
-            };
-
-            if token == "?" || token == "??" {
-                bytes.push(0);
-                mask.push(false);
-            }
-
-            match token {
-                "?" | "??" => {
-                    bytes.push(0);
-                    mask.push(false);
-                }
-                t => {
-                    if t.len() != 2 {
-                        return Err(Box::new(
-                                InvalidFormat::IsNonValidPattern(ol_token.to_string())
-                        ));
-                    }
-                    match u8::from_str_radix(t, 16) {
-                        Ok(b) => {
-                            bytes.push(b);
-                            mask.push(true);
-                        },
-                        Err(e) => {
-                            return Err(Box::new(
-                                InvalidFormat::ContainsInvalidCharacters(format!("{}", e)
-                            )));
-                        }
-                    }
-                }
-            }
-        }
-
-        Ok(Pattern{
-            bytes, mask
-        })
-    }
-
-    pub fn matches(&self, slice: &[u8]) -> bool {
-        if slice.len() < self.bytes.len() { return false; }
-        for (i, &b) in self.bytes.iter().enumerate() {
-            if self.mask[i] && slice[i] != b {
-                return false;
-            }
-        }
-        true
-    }
-
-    pub fn len(&self) -> usize {
-        self.bytes.len()
-    }
+    Pattern::from_ida_str(&normalized)
+        .map_err(|e| Box::new(InvalidFormat::IsNonValidPattern(format!("{:?}", e))) as Box<dyn InternalLimeError>)
 }
 
 pub struct OffsetScanner {
@@ -86,37 +26,26 @@ pub struct OffsetScanner {
 
 impl OffsetScanner {
     pub fn new(chunk_size: usize) -> Self {
-        Self {
-            chunk_size
-        }
+        Self { chunk_size }
     }
 
     pub fn scan_buf_for_pattern(&self, buffer: &[u8], pattern: &Pattern) -> Result<Vec<u64>, Box<dyn InternalLimeError>> {
-        let mut result_addr = Vec::new();
-
-        if pattern.len() == 0 {
-            return Err(Box::new(
-                GeneralErrors::PatternIsEmpty(format!("Received: \"{:?}\"", pattern))
-            ));
+        if pattern.bytes.is_empty() {
+            return Err(Box::new(GeneralErrors::PatternIsEmpty("Empty pattern".to_string())));
         }
 
-        if buffer.len() < pattern.len() {
-            return Err(Box::new(
-                GeneralErrors::PatternLargerThanBuffer(format!("{:?}", pattern))
-            ));
+        if buffer.len() < pattern.bytes.len() {
+            return Err(Box::new(GeneralErrors::PatternLargerThanBuffer("Pattern larger than buffer".to_string())));
         }
 
-        for i in 0..buffer.len().saturating_sub(pattern.bytes.len()) {
-            if pattern.matches(&buffer[i..i+pattern.bytes.len()]) {
-                result_addr.push(i as u64);
-            }
-        }
+        let results: Vec<u64> = scan_all(buffer, pattern)
+            .into_iter()
+            .map(|m| m.offset as u64)
+            .collect();
 
-        match result_addr.len() {
-            0 => Err(Box::new(
-                GeneralErrors::PatternNotFound(format!("{:?}", pattern))
-            )),
-            _ => Ok(result_addr)
+        match results.len() {
+            0 => Err(Box::new(GeneralErrors::PatternNotFound("No matches found".to_string()))),
+            _ => Ok(results),
         }
     }
 
@@ -127,49 +56,35 @@ impl OffsetScanner {
         end_addr: u64,
         pattern: &Pattern
     ) -> Result<Vec<u64>, Box<dyn InternalLimeError>> {
-        let mut results = Vec::new();
-
-        if pattern.len() == 0 {
-            return Err(Box::new(
-                GeneralErrors::PatternIsEmpty(format!("Received: \"{:?}\"", pattern))
-            ));
+        if pattern.bytes.is_empty() {
+            return Err(Box::new(GeneralErrors::PatternIsEmpty("Empty pattern".to_string())));
         }
 
         if start_addr >= end_addr {
-            return Err(Box::new(
-                MemAddrError::AddressOutOfBounds(
-                    format!("start address ({}) bigger or equal to end address ({})", start_addr, end_addr)
-                )
-            ))
+            return Err(Box::new(MemAddrError::AddressOutOfBounds(
+                format!("start address ({}) bigger or equal to end address ({})", start_addr, end_addr)
+            )));
         }
 
+        let mut results = Vec::new();
         let mut current = start_addr;
-
-        let overlap_size = pattern.len().saturating_sub(1);
+        let overlap_size = pattern.bytes.len().saturating_sub(1);
 
         while current < end_addr {
             let remaining = (end_addr - current) as usize;
-
             let read_size = min(self.chunk_size, remaining);
 
-            if read_size < pattern.len() {
+            if read_size < pattern.bytes.len() {
                 break;
             }
 
-            let mut buffer = Vec::new();
-            for offset in 0..read_size {
-                match reader.read_value::<u8>(current + offset as u64) {
-                    Ok(b) => buffer.push(b),
-                    Err(_) => break,
-                }
-            }
+            let mut buffer = vec![0u8; read_size];
+            let n = reader.read_bytes(current, &mut buffer).unwrap_or(0);
+            buffer.truncate(n);
 
-            if buffer.len() >= pattern.len() {
-                let chunked_results = self.scan_buf_for_pattern(&buffer, pattern)?;
-
-                for relative in &chunked_results {
-                    let absolute = current + relative;
-                    results.push(absolute);
+            if buffer.len() >= pattern.bytes.len() {
+                for m in scan_all(&buffer, pattern) {
+                    results.push(current + m.offset as u64);
                 }
             }
 
@@ -180,12 +95,16 @@ impl OffsetScanner {
         results.sort_unstable();
         results.dedup_by(|a, b| a == b);
 
-        Ok(results)
+        match results.len() {
+            0 => Err(Box::new(GeneralErrors::PatternNotFound("No matches found".to_string()))),
+            _ => Ok(results),
+        }
     }
 }
 
 impl Default for OffsetScanner {
     fn default() -> Self {
-        Self::new(1024 * 1024)
+        Self::new(64 * 1024)
     }
 }
+
