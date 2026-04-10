@@ -3,5 +3,14 @@
 version = 4
 
 [[package]]
+name = "basic_pattern_scanner"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5c7a08478e954115dfc94b36cfe23f3f082f90b796b992c6a64b9e1359f06490"
+
+[[package]]
 name = "lime"
 version = "0.1.0"
+dependencies = [
+ "basic_pattern_scanner",
+]

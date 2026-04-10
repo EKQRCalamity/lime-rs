@@ -1,4 +1,5 @@
 use std::io::{Read, Seek, SeekFrom};
+use std::os::unix::fs::FileExt;
 
 use crate::{errors::RPMError, traits::{ReadProcessMemory}};
 
@@ -20,5 +21,9 @@ impl ReadProcessMemory for ProcMem {
         let val = unsafe { std::ptr::read_unaligned(buffer.as_ptr() as *const T) };
 
         return Ok(val);
+    }
+
+    fn read_bytes(&mut self, addr: u64, buf: &mut [u8]) -> Result<usize, Box<dyn crate::traits::InternalLimeError>> {
+        Ok(self.mem_file.read_at(buf, addr).unwrap_or(0))
     }
 }

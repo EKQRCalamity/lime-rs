@@ -1,38 +1,48 @@
-use crate::{internal::patterns::offsets::{OffsetScanner, Pattern}, traits::ProcessMemoryPatternScan};
+use crate::{internal::patterns::offsets::{OffsetScanner, parse_pattern}, traits::{ProcessMemoryPatternScan, ScanTarget}};
 
 use super::procmem::ProcMem;
 
 impl ProcessMemoryPatternScan for ProcMem {
     fn scan_for_pattern(&mut self, pattern: &str) -> Option<Vec<u64>> {
-        let pattern = match Pattern::from_str(pattern) {
-            Ok(p) => p,
-            Err(_) => return None,
-        };
-        
+        self.scan_for_pattern_in(pattern, ScanTarget::HeapAndStack)
+    }
+
+    fn scan_for_pattern_in(&mut self, pattern: &str, target: ScanTarget) -> Option<Vec<u64>> {
+        let pattern = parse_pattern(pattern).ok()?;
         let scanner = OffsetScanner::default();
-        let mut all_results = Vec::new();
-        
-        // Scan all readable regions
+        let mut results = Vec::new();
+
         let bind = self.maps.clone();
-        for region in bind.get_regions() {
-            if region.is_readable() {
-                match scanner.scan_range_for_pattern(self, region.start, region.end, &pattern) {
-                    Ok(mut region_results) => {
-                        all_results.append(&mut region_results);
-                    }
-                    Err(_) => {
-                        continue;
-                    }
-                }
+        let regions: Vec<(u64, u64)> = match target {
+            ScanTarget::HeapAndStack => {
+                let mut r = bind.get_heap_regions();
+                r.append(&mut bind.get_stack_regions());
+                r.iter().map(|r| (r.start, r.end)).collect()
+            }
+            ScanTarget::Anonymous => {
+                bind.get_anonymous_regions().iter().map(|r| (r.start, r.end)).collect()
+            }
+            ScanTarget::Module(name) => {
+                bind.find_regions_by_name(name)
+                    .iter()
+                    .filter(|r| r.is_readable() && r.is_executable())
+                    .map(|r| (r.start, r.end))
+                    .collect()
+            }
+            ScanTarget::Range(start, end) => vec![(start, end)],
+        };
+
+        for (start, end) in regions {
+            if let Ok(mut r) = scanner.scan_range_for_pattern(self, start, end, &pattern) {
+                results.append(&mut r);
             }
         }
-        
-        if all_results.is_empty() {
+
+        if results.is_empty() {
             None
         } else {
-            // Sort results by address
-            all_results.sort_unstable();
-            Some(all_results)
+            results.sort_unstable();
+            Some(results)
         }
     }
 }

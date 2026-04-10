@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 pub fn find_pids_by_proc_name(needle: &str) -> Option<Vec<u32>> {
     let mut pids = Vec::new();
 
