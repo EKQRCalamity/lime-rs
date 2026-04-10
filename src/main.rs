@@ -42,23 +42,35 @@ const BUILD_TIMESTAMP: &str = "2025-09-01-21:00:00-UNIQUE";
 
 fn read_input(prompt: &str) -> String {
     use std::io::Write;
-    let mut buffer: String = String::new();
+    let mut buffer = String::new();
     print!("{}", prompt);
     std::io::stdout().flush().unwrap();
     std::io::stdin().read_line(&mut buffer).unwrap();
     buffer.trim().to_owned()
 }
 
+fn string_to_pattern(s: &str) -> String {
+    s.bytes().map(|b| format!("{:02X}", b)).collect::<Vec<_>>().join(" ")
+}
+
 fn main() {
     black_box(BUILD_TIMESTAMP);
     let target = read_input("Process name: ");
-    let pattern = read_input("Pattern: ");
+    let mode = read_input("Mode (string/pattern): ");
+    let input = read_input("Input: ");
+
+    let pattern_str = match mode.to_lowercase().as_str() {
+        "string" => string_to_pattern(&input),
+        _ => input,
+    };
 
     let pids = find_pids_by_proc_name_contains(&target);
 
     if pids.is_none() {
         panic!("Process pids could not be found!");
     }
+
+    println!("Pattern: {}", pattern_str);
 
     for pid in unsafe { pids.unwrap_unchecked() } {
         println!("PID: {}", pid);
@@ -68,67 +80,88 @@ fn main() {
 
         if procman.refresh_maps().is_err() {
             panic!("Couldn't refresh maps!");
-        };
+        }
 
-        let maps = procman.get_maps();
+        let maps = procman.get_maps().clone();
         let mut regions = maps.get_heap_regions();
         regions.append(&mut maps.get_stack_regions());
-        println!("Found heap&stack regions: \n{}", regions.iter().map(|x| format!("Name: {} <{}-{}> |{}| Offset: {} Dev: {} INode: {}", x.pathname.clone().unwrap_or_else(|| String::from("N/A")), x.start, x.end, x.perm, x.offset, x.dev, x.inode)).collect::<Vec<String>>().join("\n"));
+				println!("Scanning Heap+Stack...");
+        println!("Heap & stack regions:\n{}", regions.iter().map(|x|
+            format!("{} <{:#x}-{:#x}> |{}|",
+                x.pathname.clone().unwrap_or_else(|| "N/A".to_string()),
+                x.start, x.end, x.perm)
+        ).collect::<Vec<_>>().join("\n"));
+				match procman.scan_for_pattern_in(&pattern_str, traits::ScanTarget::HeapAndStack) {
+            Some(addresses) => {
+                println!("Matches: {}", addresses.iter().map(|a| format!("{:#x}", a)).collect::<Vec<_>>().join(", "));
 
-
-        println!("Searching for pattern: {}", 
-            &((&pattern).as_bytes()
-            .iter()
-            .map(|b| format!("0x{:02x}", b)).collect::<Vec<String>>().join(" ")));
-
-        match procman.scan_heap_for_pattern(
-            &((&pattern).as_bytes()
-            .iter()
-            .map(|b| format!("0x{:02x}", b)).collect::<Vec<String>>().join(" "))
-        ) {
-            Ok(addresses) => {
-                println!("Found addresses matching pattern: {}", 
-                    addresses.iter().map(|addr| format!("0x{:x}", addr)).collect::<Vec<String>>().join(","));
-                
                 for addr in &addresses {
-                    
-                    match procman.read_value::<u64>(*addr) {
-                        Ok(val) => println!("Address 0x{:x} as u64: 0x{:x} ({})", addr, val, val),
-                        Err(e) => println!("Failed to read u64 at 0x{:x}: {}", addr, e),
+                    if let Ok(val) = procman.read_value::<u64>(*addr) {
+                        println!("{:#x}  u64: {:#x} ({})", addr, val, val);
                     }
-                    
+
                     let mut string_bytes = Vec::new();
-                    for i in 0..32 {
+                    for i in 0..256 {
                         match procman.read_value::<u8>(*addr + i) {
-                            Ok(byte) => {
-                                if byte == 0 { break; } // Handle null termination
-                                if byte.is_ascii() {
-                                    string_bytes.push(byte);
-                                } else {
-                                    break;
-                                }
-                            }
-                            Err(_) => break,
+                            Ok(b) if b != 0 && b.is_ascii() && !b.is_ascii_control() => string_bytes.push(b),
+                            _ => break,
                         }
                     }
-                    
                     if !string_bytes.is_empty() {
-                        let string_val = String::from_utf8_lossy(&string_bytes);
-                        println!("Address 0x{:x} as string: \"{}\"", addr, string_val);
+                        println!("{:#x}  str: \"{}\"", addr, String::from_utf8_lossy(&string_bytes));
                     }
-                    
-                    // Hex dump 32 bytes around the value
-                    print!("Address 0x{:x} hex dump: ", addr);
+
+                    print!("{:#x}  hex: ", addr);
                     for i in 0..32 {
                         match procman.read_value::<u8>(*addr + i) {
-                            Ok(byte) => print!("{:02x} ", byte),
+                            Ok(b) => print!("{:02x} ", b),
                             Err(_) => print!("?? "),
                         }
                     }
                     println!();
                 }
-            }            
-            Err(_) => println!("No region found with pattern!"),
+            }
+            None => println!("No matches found."),
+        }
+
+				println!("Scanning Anonymous...");
+				println!("Anonymous regions:\n{}", maps.get_anonymous_regions().iter().map(|x|
+            format!("{} <{:#x}-{:#x}> |{}|",
+                x.pathname.clone().unwrap_or_else(|| "N/A".to_string()),
+                x.start, x.end, x.perm)
+        ).collect::<Vec<_>>().join("\n"));
+
+        match procman.scan_for_pattern_in(&pattern_str, traits::ScanTarget::Anonymous) {
+            Some(addresses) => {
+                println!("Matches: {}", addresses.iter().map(|a| format!("{:#x}", a)).collect::<Vec<_>>().join(", "));
+
+                for addr in &addresses {
+                    if let Ok(val) = procman.read_value::<u64>(*addr) {
+                        println!("{:#x}  u64: {:#x} ({})", addr, val, val);
+                    }
+
+                    let mut string_bytes = Vec::new();
+                    for i in 0..256 {
+                        match procman.read_value::<u8>(*addr + i) {
+                            Ok(b) if b != 0 && b.is_ascii() && !b.is_ascii_control() => string_bytes.push(b),
+                            _ => break,
+                        }
+                    }
+                    if !string_bytes.is_empty() {
+                        println!("{:#x}  str: \"{}\"", addr, String::from_utf8_lossy(&string_bytes));
+                    }
+
+                    print!("{:#x}  hex: ", addr);
+                    for i in 0..32 {
+                        match procman.read_value::<u8>(*addr + i) {
+                            Ok(b) => print!("{:02x} ", b),
+                            Err(_) => print!("?? "),
+                        }
+                    }
+                    println!();
+                }
+            }
+            None => println!("No matches found."),
         }
     }
 }
