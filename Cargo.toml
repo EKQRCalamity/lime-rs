@@ -4,4 +4,4 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-basic_pattern_scanner = "0.1.0"
+basic_pattern_scanner = "1.0.0"

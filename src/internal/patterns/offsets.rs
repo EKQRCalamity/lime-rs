@@ -3,12 +3,14 @@
 use std::cmp::min;
 
 use basic_pattern_scanner::pattern::types::Pattern;
-use basic_pattern_scanner::scanner::scanner::scan_all;
 
 use crate::{
 	errors::{GeneralErrors, InvalidFormat, MemAddrError},
 	traits::{InternalLimeError, ReadProcessMemory},
 };
+
+// Uses the default scanner, when not on nightly and without the simd_std_unstable feature flag enabled will be Scaler, otherwise will be SIMD
+use basic_pattern_scanner::scanner::scan_all;
 
 /// Strips optional `0x`/`0X` prefixes from each token, then delegates to
 /// `Pattern::from_ida_str`. Accepts both `?` and `??` as wildcards.

@@ -1,4 +1,4 @@
-use std::hint::black_box;
+use std::{hint::black_box, time::Instant};
 
 use process::find::find_pids_by_proc_name_contains;
 use traits::ProcessMemoryPatternScan;
@@ -192,20 +192,37 @@ fn main() {
 		let mut regions = maps.get_heap_regions();
 		regions.append(&mut maps.get_stack_regions());
 		println!("Scanning Heap+Stack...");
-		println!("Heap & stack regions: {}", regions.len());
-		read_input("Press enter to continue...");
+		println!(
+			"Heap & stack regions:\n{}",
+			regions
+				.iter()
+				.map(|x| format!(
+					"{} <{:#x}-{:#x}> |{}|",
+					x.pathname.clone().unwrap_or_else(|| "N/A".to_string()),
+					x.start,
+					x.end,
+					x.perm
+				))
+				.collect::<Vec<_>>()
+				.join("\n")
+		);
+		read_input("");
 
+		let start = Instant::now();
 		match procman.scan_for_pattern_in(&pattern_str, traits::ScanTarget::HeapAndStack) {
-			Some(addresses) => print_match_results(&addresses, &mut procman, scan_mode, n_bytes),
+			Some(addresses) => {
+				println!("Search took: {}micros", start.elapsed().as_micros());
+				print_match_results(&addresses, &mut procman, scan_mode, n_bytes);
+			}
 			None => println!("No matches found."),
 		}
 
-		let scan_anon = read_input("Scan anonymous regions? [Y/n] ").to_lowercase();
+		let scan_anon = read_input("Scan anonymous regions? (y)").to_lowercase();
 		if !scan_anon.is_empty() && scan_anon != "y" && scan_anon != "yes" {
 			return;
 		}
 
-		let mut anonymous_regions = maps.get_anonymous_regions();
+		let anonymous_regions = maps.get_anonymous_regions();
 
 		if anonymous_regions.len() == regions.len() {
 			if anonymous_regions.iter().all(|x| {
@@ -217,22 +234,15 @@ fn main() {
 				return;
 			}
 		}
-		anonymous_regions = anonymous_regions
-			.iter()
-			.filter(|f| {
-				f.pathname.as_ref().map_or(true, |path| {
-					!path.contains("[heap]") && !path.contains("[stack]")
-				})
-			})
-			.map(|x| *x)
-			.collect();
 
 		println!("Scanning Anonymous...");
 		println!("Anonymous regions: {}", anonymous_regions.len());
-
-		read_input("Press enter to continue...");
-		match procman.scan_for_pattern_in(&pattern_str, traits::ScanTarget::AnonymousNonHeapAndStack) {
-			Some(addresses) => print_match_results(&addresses, &mut procman, scan_mode, n_bytes),
+		let start = Instant::now();
+		match procman.scan_for_pattern_in(&pattern_str, traits::ScanTarget::Anonymous) {
+			Some(addresses) => {
+				println!("Search took: {}micros", start.elapsed().as_micros());
+				print_match_results(&addresses, &mut procman, scan_mode, n_bytes);
+			}
 			None => println!("No matches found."),
 		}
 	}
